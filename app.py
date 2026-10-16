@@ -1,18 +1,16 @@
 import streamlit as st
 from openai import OpenAI
-import PyPDF2
-import io
+import pypdf
 
 # ==========================================
 # CONFIGURAÇÕES DA API (MICROSOFT FOUNDRY)
 # ==========================================
 API_KEY = "6t2pTNsmNafDyo53MDAFIrvvQRBZXP7dLcr5j3TLxMS34LQVq3ZUJQQJ99CHACHYHv6XJ3w3AAAAACOGT7os"
 MODEL_NAME = "gpt-4.1-mini"
-# Endpoint padrão ajustado para a especificação v1 do Microsoft Foundry / Azure OpenAI
 ENDPOINT = "https://marcelomaffeis-05082026-resource.services.ai.azure.com/openai/v1/"
 
 # ==========================================
-# CONFIGURAÇÃO DA PÁGINA E ESTILO VISUAL (CSS)
+# CONFIGURAÇÃO DA PÁGINA E ESTILO VISUAL
 # ==========================================
 st.set_page_config(
     page_title="ChatBot Acadêmico com RAG",
@@ -21,31 +19,16 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Estilização CSS customizada para bordas e refinamento estético
+# Estilização CSS customizada complementar
 st.markdown("""
     <style>
-    /* Estilo geral do fundo e fontes */
     .stApp {
         background-color: #f8f9fa;
     }
-    
-    /* Borda estilizada ao redor da área principal do chat */
-    .chat-container-border {
-        border: 2px solid #e2e8f0;
-        border-radius: 12px;
-        padding: 20px;
-        background-color: #ffffff;
-        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
-        margin-bottom: 20px;
-    }
-
-    /* Ajustes na barra lateral */
     [data-testid="stSidebar"] {
         background-color: #f1f5f9;
         border-right: 1px solid #e2e8f0;
     }
-    
-    /* Títulos e cabeçalhos */
     h1 {
         color: #1e293b;
         font-weight: 700;
@@ -54,43 +37,66 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==========================================
+# GERENCIAMENTO DE ESTADO (SESSION STATE)
+# ==========================================
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+
+if "file_context" not in st.session_state:
+    st.session_state.file_context = ""
+
+if "uploaded_file_name" not in st.session_state:
+    st.session_state.uploaded_file_name = None
+
+# ==========================================
 # BARRA LATERAL (UPLOAD DE ARQUIVOS / RAG)
 # ==========================================
 with st.sidebar:
     st.header("📂 Base de Conhecimento (RAG)")
-    st.markdown("Envie um documento de referência (**PDF** ou **TXT**) para contextualizar as respostas do assistente.")
+    st.markdown("Envie um documento de referência (**PDF** ou **TXT**) para contextualizar as respostas.")
     
     uploaded_file = st.file_uploader("Escolha um arquivo", type=["pdf", "txt"])
     
-    file_context = ""
-    
     if uploaded_file is not None:
-        file_extension = uploaded_file.name.split(".")[-1].lower()
-        
-        if file_extension == "pdf":
-            try:
-                reader = PyPDF2.PdfReader(uploaded_file)
-                for page in reader.pages:
-                    text = page.extract_text()
-                    if text:
-                        file_context += text + "\n"
-                st.success(f"PDF '{uploaded_file.name}' carregado com sucesso!")
-            except Exception as e:
-                st.error(f"Erro ao ler o arquivo PDF: {e}")
-                
-        elif file_extension == "txt":
-            try:
-                file_context = uploaded_file.read().decode("utf-8")
-                st.success(f"TXT '{uploaded_file.name}' carregado com sucesso!")
-            except Exception as e:
-                st.error(f"Erro ao ler o arquivo TXT: {e}")
-                
-        if file_context:
-            st.info(f"Contexto ativo: ~{len(file_context)} caracteres carregados.")
+        # Processa o arquivo apenas se for um arquivo novo (evita reprocessar a cada mensagem)
+        if st.session_state.uploaded_file_name != uploaded_file.name:
+            st.session_state.uploaded_file_name = uploaded_file.name
+            st.session_state.file_context = ""
+            
+            file_extension = uploaded_file.name.split(".")[-1].lower()
+            
+            if file_extension == "pdf":
+                try:
+                    reader = pypdf.PdfReader(uploaded_file)
+                    extracted_text = []
+                    for page in reader.pages:
+                        text = page.extract_text()
+                        if text:
+                            extracted_text.append(text)
+                    st.session_state.file_context = "\n".join(extracted_text)
+                    st.success(f"PDF '{uploaded_file.name}' processado com sucesso!")
+                except Exception as e:
+                    st.error(f"Erro ao ler o arquivo PDF: {e}")
+                    
+            elif file_extension == "txt":
+                try:
+                    st.session_state.file_context = uploaded_file.read().decode("utf-8")
+                    st.success(f"TXT '{uploaded_file.name}' processado com sucesso!")
+                except Exception as e:
+                    st.error(f"Erro ao ler o arquivo TXT: {e}")
+    else:
+        # Limpa o contexto se o usuário remover o arquivo
+        if st.session_state.uploaded_file_name is not None:
+            st.session_state.uploaded_file_name = None
+            st.session_state.file_context = ""
+            st.info("Base de conhecimento limpa.")
+
+    if st.session_state.file_context:
+        st.info(f"Contexto ativo: ~{len(st.session_state.file_context)} caracteres.")
             
     st.markdown("---")
     st.markdown("### ℹ️ Sobre o Sistema")
-    st.markdown("Desenvolvido para estudo acadêmico utilizando **Streamlit** e modelos hospedados na plataforma **Microsoft Foundry**.")
+    st.markdown("Desenvolvido para estudo acadêmico com **Streamlit** e **Microsoft Foundry**.")
 
 # ==========================================
 # INTERFACE PRINCIPAL DO CHAT
@@ -98,56 +104,49 @@ with st.sidebar:
 st.title("🤖 ChatBot Acadêmico com RAG")
 st.markdown("Faça perguntas gerais ou baseadas no documento enviado na barra lateral.")
 
-# Inicializar o histórico de conversas no session_state
-if "messages" not in st.session_state:
-    st.session_state.messages = []
+# Container com borda estilizada nativa do Streamlit
+chat_container = st.container(border=True)
 
-# Container principal com borda estilizada
-st.markdown('<div class="chat-container-border">', unsafe_allow_html=True)
-
-# Exibir histórico de mensagens anteriores
-for message in st.session_state.messages:
-    with st.chat_message(message["role"]):
-        st.markdown(message["content"])
-
-st.markdown('</div>', unsafe_allow_html=True)
+with chat_container:
+    if not st.session_state.messages:
+        st.info("Nenhuma mensagem no histórico. Comece a conversar abaixo!")
+        
+    # Exibir histórico de mensagens anteriores
+    for message in st.session_state.messages:
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
 
 # Capturar nova entrada do usuário
 if prompt := st.chat_input("Digite sua mensagem aqui..."):
-    # Salvar e exibir a mensagem do usuário
+    # Salvar mensagem do usuário no histórico
     st.session_state.messages.append({"role": "user", "content": prompt})
-    with st.chat_message("user"):
-        st.markdown(prompt)
+    st.rerun()
 
-    # Gerar resposta do assistente usando a API do Microsoft Foundry
+# Gerar resposta do assistente se a última mensagem foi do usuário
+if st.session_state.messages and st.session_state.messages[-1]["role"] == "user":
     with st.chat_message("assistant"):
         with st.spinner("Analisando e gerando resposta..."):
             try:
-                # Inicializar o cliente OpenAI com as credenciais do Microsoft Foundry
                 client = OpenAI(
                     api_key=API_KEY,
                     base_url=ENDPOINT
                 )
                 
-                # Construir o prompt do sistema injetando o contexto RAG (se houver arquivo)
                 system_instruction = (
                     "Você é um assistente acadêmico especialista, prestativo e objetivo."
                 )
-                if file_context:
+                if st.session_state.file_context:
                     system_instruction += (
                         f"\n\nContexto extraído do documento enviado pelo usuário:\n"
-                        f"---------------------\n{file_context}\n---------------------\n"
+                        f"---------------------\n{st.session_state.file_context}\n---------------------\n"
                         f"Instrução: Utilize preferencialmente as informações acima para responder à pergunta do usuário, caso sejam relevantes."
                     )
                 
-                # Montar o payload de mensagens para a API
                 messages_payload = [{"role": "system", "content": system_instruction}]
                 
-                # Adicionar o histórico recente da conversa (últimas 10 interações)
                 for m in st.session_state.messages[-10:]:
                     messages_payload.append({"role": m["role"], "content": m["content"]})
                 
-                # Chamada de API para o modelo configurado
                 response = client.chat.completions.create(
                     model=MODEL_NAME,
                     messages=messages_payload,
@@ -158,7 +157,6 @@ if prompt := st.chat_input("Digite sua mensagem aqui..."):
                 assistant_response = response.choices[0].message.content
                 st.markdown(assistant_response)
                 
-                # Salvar resposta no session_state
                 st.session_state.messages.append({"role": "assistant", "content": assistant_response})
                 
             except Exception as e:
