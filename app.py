@@ -3,13 +3,6 @@ from openai import OpenAI
 import pypdf
 
 # ==========================================
-# CONFIGURAÇÕES DA API (MICROSOFT FOUNDRY)
-# ==========================================
-API_KEY = "6t2pTNsmNafDyo53MDAFIrvvQRBZXP7dLcr5j3TLxMS34LQVq3ZUJQQJ99CHACHYHv6XJ3w3AAAAACOGT7os"
-MODEL_NAME = "gpt-4.1-mini"
-ENDPOINT = "https://marcelomaffeis-05082026-resource.services.ai.azure.com/openai/v1/"
-
-# ==========================================
 # CONFIGURAÇÃO DA PÁGINA E ESTILO VISUAL
 # ==========================================
 st.set_page_config(
@@ -49,16 +42,26 @@ if "uploaded_file_name" not in st.session_state:
     st.session_state.uploaded_file_name = None
 
 # ==========================================
-# BARRA LATERAL (UPLOAD DE ARQUIVOS / RAG)
+# BARRA LATERAL (CONFIGURAÇÕES E RAG)
 # ==========================================
 with st.sidebar:
+    st.header("⚙️ Credenciais da API")
+    st.markdown("Insira seus dados do **Microsoft Foundry** para conectar o assistente:")
+    
+    # Campos dinâmicos para inserção segura das credenciais pelo usuário
+    minha_chave = st.text_input("Chave da API (API Key)", type="password", placeholder="Insira sua chave aqui...")
+    meu_endpoint = st.text_input("Endpoint do Serviço", value="https://marcelomaffeis-05082026-resource.services.ai.azure.com/openai/v1/")
+    meu_modelo = st.text_input("Nome do Deployment (Modelo)", value="gpt-4.1-mini")
+    
+    st.markdown("---")
+    
     st.header("📂 Base de Conhecimento (RAG)")
     st.markdown("Envie um documento de referência (**PDF** ou **TXT**) para contextualizar as respostas.")
     
     uploaded_file = st.file_uploader("Escolha um arquivo", type=["pdf", "txt"])
     
     if uploaded_file is not None:
-        # Processa o arquivo apenas se for um arquivo novo (evita reprocessar a cada mensagem)
+        # Processa o arquivo apenas se for um arquivo novo (otimização de performance)
         if st.session_state.uploaded_file_name != uploaded_file.name:
             st.session_state.uploaded_file_name = uploaded_file.name
             st.session_state.file_context = ""
@@ -85,7 +88,6 @@ with st.sidebar:
                 except Exception as e:
                     st.error(f"Erro ao ler o arquivo TXT: {e}")
     else:
-        # Limpa o contexto se o usuário remover o arquivo
         if st.session_state.uploaded_file_name is not None:
             st.session_state.uploaded_file_name = None
             st.session_state.file_context = ""
@@ -104,6 +106,10 @@ with st.sidebar:
 st.title("🤖 ChatBot Acadêmico com RAG")
 st.markdown("Faça perguntas gerais ou baseadas no documento enviado na barra lateral.")
 
+# Validação prévia de segurança para a Chave de API
+if not minha_chave:
+    st.warning("⚠️ Por favor, insira a sua **Chave de API (API Key)** na barra lateral para habilitar o chat.")
+
 # Container com borda estilizada nativa do Streamlit
 chat_container = st.container(border=True)
 
@@ -118,48 +124,51 @@ with chat_container:
 
 # Capturar nova entrada do usuário
 if prompt := st.chat_input("Digite sua mensagem aqui..."):
-    # Salvar mensagem do usuário no histórico
-    st.session_state.messages.append({"role": "user", "content": prompt})
-    st.rerun()
+    if not minha_chave:
+        st.error("Você precisa informar a Chave de API na barra lateral antes de enviar mensagens.")
+    else:
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        st.rerun()
 
 # Gerar resposta do assistente se a última mensagem foi do usuário
 if st.session_state.messages and st.session_state.messages[-1]["role"] == "user":
-    with st.chat_message("assistant"):
-        with st.spinner("Analisando e gerando resposta..."):
-            try:
-                client = OpenAI(
-                    api_key=API_KEY,
-                    base_url=ENDPOINT
-                )
-                
-                system_instruction = (
-                    "Você é um assistente acadêmico especialista, prestativo e objetivo."
-                )
-                if st.session_state.file_context:
-                    system_instruction += (
-                        f"\n\nContexto extraído do documento enviado pelo usuário:\n"
-                        f"---------------------\n{st.session_state.file_context}\n---------------------\n"
-                        f"Instrução: Utilize preferencialmente as informações acima para responder à pergunta do usuário, caso sejam relevantes."
+    if minha_chave:
+        with st.chat_message("assistant"):
+            with st.spinner("Analisando e gerando resposta..."):
+                try:
+                    client = OpenAI(
+                        api_key=minha_chave,
+                        base_url=meu_endpoint
                     )
-                
-                messages_payload = [{"role": "system", "content": system_instruction}]
-                
-                for m in st.session_state.messages[-10:]:
-                    messages_payload.append({"role": m["role"], "content": m["content"]})
-                
-                response = client.chat.completions.create(
-                    model=MODEL_NAME,
-                    messages=messages_payload,
-                    temperature=0.7,
-                    max_tokens=1000
-                )
-                
-                assistant_response = response.choices[0].message.content
-                st.markdown(assistant_response)
-                
-                st.session_state.messages.append({"role": "assistant", "content": assistant_response})
-                
-            except Exception as e:
-                error_message = f"Erro de comunicação com o Microsoft Foundry: {e}"
-                st.error(error_message)
-                st.session_state.messages.append({"role": "assistant", "content": error_message})
+                    
+                    system_instruction = (
+                        "Você é um assistente acadêmico especialista, prestativo e objetivo."
+                    )
+                    if st.session_state.file_context:
+                        system_instruction += (
+                            f"\n\nContexto extraído do documento enviado pelo usuário:\n"
+                            f"---------------------\n{st.session_state.file_context}\n---------------------\n"
+                            f"Instrução: Utilize preferencialmente as informações acima para responder à pergunta do usuário, caso sejam relevantes."
+                        )
+                    
+                    messages_payload = [{"role": "system", "content": system_instruction}]
+                    
+                    for m in st.session_state.messages[-10:]:
+                        messages_payload.append({"role": m["role"], "content": m["content"]})
+                    
+                    response = client.chat.completions.create(
+                        model=meu_modelo,
+                        messages=messages_payload,
+                        temperature=0.7,
+                        max_tokens=1000
+                    )
+                    
+                    assistant_response = response.choices[0].message.content
+                    st.markdown(assistant_symbol := assistant_response)
+                    
+                    st.session_state.messages.append({"role": "assistant", "content": assistant_response})
+                    
+                except Exception as e:
+                    error_message = f"Erro de comunicação com o Microsoft Foundry: {e}"
+                    st.error(error_message)
+                    st.session_state.messages.append({"role": "assistant", "content": error_message})
